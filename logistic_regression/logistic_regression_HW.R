@@ -24,7 +24,6 @@
 
 ##   Load the National Health Interview Survey data:
 setwd("C:/Users/mouz/Desktop/DataSci/Machine Learning/Logistic Regression/logistic_regression/logistic_regression")
-library(dplyr)
 ?attributes
 NH11 <- readRDS("dataSets/NatHealth2011.rds")
 labs <- attributes(NH11)$labels
@@ -45,6 +44,7 @@ levels(NH11$hypev) # check levels of hypev
 # collapse all missing values to NA
 NH11$hypev <- factor(NH11$hypev, levels = c("2 No", "1 Yes"))
 levels(NH11$hypev) # check levels of hypev
+summary(NH11$hypev)
 
 # run our regression model
 hyp.out <- glm(hypev ~ age_p + sex + sleep + bmi,
@@ -81,7 +81,7 @@ hyp.out.tab
 ?expand.grid
 ?with
 predDat <- with(NH11,
-                expand.grid(age_p = c(33, 63, 66),
+                expand.grid(age_p = c(30,60),
                             sex = "2 Female",
                             bmi = mean(bmi, na.rm = TRUE),
                             sleep = mean(sleep, na.rm = TRUE)))
@@ -121,6 +121,7 @@ plot(allEffects(hyp.out))
 
 ##   1. Use glm to conduct a logistic regression to predict ever worked
 ##      (everwrk) using age (age_p) and marital status (r_maritl).
+
 ##   2. Predict the probability of working for each level of marital
 ##      status.
 
@@ -128,6 +129,8 @@ plot(allEffects(hyp.out))
 ##   will need to clean up at least some of the variables before fitting
 ##   the model.
 library(mice)
+library(caTools)
+library(dplyr)
 ?mice
 glimpse(NH11)
 table(NH11$everwrk)
@@ -140,42 +143,55 @@ nh_sub =
 glimpse(nh_sub)
 summary(nh_sub)
 
+table(nh_sub$everwrk)
+table(nh_sub$r_maritl)
+
+# check levels
+levels(nh_sub$everwrk)
+levels(nh_sub$r_maritl)
+
+table(nh_sub$r_maritl)
+table(nh_sub$everwrk)
+
+
+nh_sub$everwrk = factor(imputed_nh$everwrk, levels = c("2 No", "1 Yes"))
+
+nh_sub$r_maritl = factor(imputed_nh$r_maritl, levels = c("0 Under 14 years", "1 Married - spouse in household" ,  
+                                         "2 Married - spouse not in household", "3 Married - spouse in household unknown",
+                                         "4 Widowed", "5 Divorced", "6 Separated", "7 Never married" ,  "8 Living with partner"))
+summary(nh_sub) # contains NA's
+
 # ---- Replacing Missing Values ----
 set.seed(50)
 imputed_nh = complete(mice(nh_sub))
-class(imputed_nh)
 
 # view summary of clean data frame
 summary(imputed_nh)
 glimpse(imputed_nh)
-levels(imputed_nh$everwrk)
-table(imputed_nh$r_maritl)
 
-levels(imputed_nh$r_maritl)
-imputed_nh$r_maritl = 
-  factor(imputed_nh$r_maritl, levels = c("0 Under 14 years", "1 Married - spouse in household" ,  
-                                         "2 Married - spouse not in household", "3 Married - spouse in household unknown",
-                                         "4 Widowed", "5 Divorced", "6 Separated", "7 Never married" ,  "8 Living with partner" ,
-                                         "9 Unknown marital status"))
-levels(imputed_nh$r_maritl)
 # ---- Train and Test ----
 split = sample.split(imputed_nh, SplitRatio = 0.8)
 train_nh = subset(imputed_nh, split == TRUE)
 test_nh = subset(imputed_nh, split == FALSE)
 
+summary(train_nh$r_maritl) 
+summary(test_nh)
+
 # baseline
 table(imputed_nh$everwrk)
-27949/(27949 + 5006 + 43 + 16) # -> 0.8466
-# 84.66 % of people said that they worked 
+28002/(5012 + 28002) # -> 0.8482
+# 84.81 % of people said that they worked 
 
 
 # ---- 1. Use glm to conduct a logistic regression to predict ever worked ----
 ##      (everwrk) using age (age_p) and marital status (r_maritl). 
 # ---- Create Model ----
-glimpse(imputed_nh$r_maritl)
-glimpse(train_nh)
+glimpse(imputed_nh$everwrk)
 work_mod = glm(everwrk ~ age_p + r_maritl, data = train_nh, family = 'binomial')
+
 summary(work_mod)
+glimpse(train_nh$r_maritl) 
+
 
 work_mod_coef = coef(summary(work_mod))
 work_mod_coef[, "Estimate"] <- exp(coef(work_mod))
@@ -184,22 +200,49 @@ summary(work_mod)
 
 # ---- Prediction w/Training set ----
 workPred = predict(work_mod, type = 'response')
-summary(workPred) # NOTE: min and max range from 0.02 to 0.39, therefore workPred has to be < 0.39
-table(train_nh$everwrk, workPred >= 0.5) # same as having workPred >= 0.99
+summary(workPred) 
+# the range seems very narrow, 0.6123 to 0.9764. Most people replied to YES???
+
+table(train_nh$everwrk, workPred >= 0.7) 
+table(train_nh$everwrk)
+
+glimpse(work_mod)
+glimpse(train_nh$everwrk)
+#
+#
+#                           |    Predicted   |  Predicted   |
+#                           |     -NO (0)    |   -YES (1)   |
+#          ---------------------------------------------------
+#           Actual NO (0)   | True Neg TN    | False Pos FP |
+#           Actual YES (1)  |  Fasle Neg FN  | True Pos TP  |
+# 
+
+table(train_nh$everwrk, workPred >= 0.7) 
+total_train = (17623 + 1080 + 571 + 2735)
+571 / (2735 + 571) # true neg rate = 0.1727
+17623 / (17623 + 1080) # true pos rate = 0.9423
+(17623 + 571) / total_train # accuracy = 0.8267 when t >= 0.7
 
 
-table(train_nh$everwrk, workPred >= 0.3) 
-total_train = (17550 + 1080 + 608 + 2737  + 22 + 4 + 8 + 1)
-(17550 + 608) / (17550 + 1080 + 608 + 2737  + 22 + 4 + 8 + 1) 
-# 0.8250
+table(train_nh$everwrk, workPred >= 0.8) 
+1381 / (1381 + 1925) # true neg = 0.4177
+14874 / (14874 + 3829) # true pos = 0.7923
+(14874 + 1381) / total_train # accuracy = 0.7386 when t >= 0.8
 
-table(train_nh$everwrk, workPred >= 0.25) 
-(16356 + 964) / total_train 
-# 0.7869
+# ---- ROC Curves ----
+library(ROCR)
+ROCRpred = prediction(predictTrain, qualityTrain$PoorCare)
+ROCRperformance = performance(ROCRpred, 'tpr', 'fpr')
+plot(ROCRperformance)
+plot(ROCRperformance, colorize = TRUE)
+plot(ROCRperformance, colorize = TRUE, print.cutoffs.at = seq(0,1,0.1), text.adj = c(-0.2, 1.7))
+
 
 # ---- Prediction w/Test set ----
 workPred2 = predict(work_mod, type = 'response', newdata = test_nh)
 summary(workPred2)
+class(workPred2)
+typeof(workPred2)
 
 table(test_nh$everwrk, workPred2 >= 0.3) 
 total_test = (8741 + 607 + 1328 + 312 + 11 + 2 + 4)
@@ -211,28 +254,76 @@ table(test_nh$everwrk, workPred2 >= 0.25)
 # 0.7890
 
 # ---- predict using Train and Test sets
+
 # Train set predictions
+head(train_nh$everwrk)
+?tapply
+head(workPred)
+summary(workPred)
+
 tibble(probability = tapply(workPred, train_nh$everwrk, mean), 
-       worked = c("1 Yes", "2 No", "7 Refused", "8 Not ascertained", "9 Don't know"))
+       worked = c("1 Yes"))
+
 # Test set predictions
 tibble(probability = tapply(workPred2, test_nh$everwrk, mean), 
-       worked = c("1 Yes", "2 No", "7 Refused", "8 Not ascertained", "9 Don't know"))
+       worked = c("1 Yes", "2 No"))
 
 
 
 ##  ---- 2. Predict the probability of working for each level of marital status ----
 # compute the mean probability for each marital level 
-tapply(workPred, train_nh$r_maritl, mean) 
-tapply(workPred2, test_nh$r_maritl, mean) 
 
 # use tibble() and compute probability of 'ever worked' for each category in marital status
+tibble(probability = tapply(workPred, train_nh$r_maritl, mean), 
+       marital_sts =  c("0 Under 14 years", "1 Married - spouse in household",  
+                    "2 Married - spouse not in household", "3 Married - spouse in household unknown",
+                    "4 Widowed", "5 Divorced", "6 Separated", "7 Never married" ,  "8 Living with partner"))
+
 ever_worked = 
   tibble(probability_mean = tapply(workPred2, test_nh$r_maritl, mean), 
        category = c("0 Under 14 years", "1 Married - spouse in household",  
                    "2 Married - spouse not in household", "3 Married - spouse in household unknown",
-                   "4 Widowed", "5 Divorced", "6 Separated", "7 Never married" ,  "8 Living with partner" ,
-                   "9 Unknown marital status"))
+                   "4 Widowed", "5 Divorced", "6 Separated", "7 Never married" ,  "8 Living with partner"))
 ever_worked
-# 25.41 % chance of working while never being married 
 sum(ever_worked[1], na.rm = TRUE)
+
+
+
+
+# Create a dataset with predictors set at desired levels
+?expand.grid
+?with
+levels(imputed_nh$r_maritl)
+table(imputed_nh$r_maritl)
+everWork <- with(imputed_nh,
+                expand.grid(age_p = c(30),
+                            everwrk = c("1 Yes", "2 No"),
+                            r_maritl = c("0 Under 14 years", "1 Married - spouse in household",  
+                                         "2 Married - spouse not in household", "3 Married - spouse in household unknown",
+                                         "4 Widowed", "5 Divorced", "6 Separated", "7 Never married" ,  "8 Living with partner")))
+
+# predict ever worked at specific levels
+cbind(everWork, predict(work_mod, type = "response",
+                       se.fit = TRUE, interval = "confidence",
+                       newdata = everWork))
+
+
+
+
+# Create a dataset with predictors set at desired levels
+everWork2 <- with(imputed_nh,
+                 expand.grid(age_p = c(20,30,40,50),
+                             r_maritl = '1 Married - spouse in household',
+                             everwrk = "1 Yes"))
+
+cbind(everWork2, predict(work_mod, type = "response",
+                         se.fit = TRUE, interval = "confidence",
+                         newdata = everWork2))
+
+predict(work_mod, type = "response",
+        se.fit = TRUE, interval = "confidence",
+        newdata = everWork2)
+
+
+
 
